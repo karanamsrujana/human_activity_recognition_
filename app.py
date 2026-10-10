@@ -1,88 +1,67 @@
-import os
+from pathlib import Path
 import joblib
 import numpy as np
-import pandas as pd
 import streamlit as st
-from pathlib import Path
+import streamlit.components.v1 as components
 
-st.set_page_config(page_title="Phone Activity Recognition", page_icon="📱", layout="centered")
-
+st.set_page_config(page_title="Live Human Activity Recognition", page_icon="📱", layout="centered")
 ROOT = Path(__file__).parent
-MODEL_PATH = ROOT / "har_model.joblib"
-DATA_DIR = ROOT / "data"
-ACTIVITIES = {
-    1: "Walking",
-    2: "Walking upstairs",
-    3: "Walking downstairs",
-    4: "Sitting",
-    5: "Standing",
-    6: "Laying"
-}
+MODEL_PATH = ROOT / "live_har_model.joblib"
+st.title("📱 Live Human Activity Recognition")
+st.write("Use your phone's motion sensors to estimate activity after pressing Start Detection.")
+st.warning("Research prototype only—not a medical or safety device. Phone placement and sensor differences can affect predictions.")
 
-st.title("📱 Human Activity Recognition")
-st.write("A machine-learning demo that classifies activities using smartphone motion-sensor features.")
-st.info("This starter version uses the UCI HAR feature dataset. It can classify a sample from the dataset or a CSV containing the same 561 features. It does **not** read your phone's sensors live from the browser yet.")
+@st.cache_resource
+def load_model():
+    return joblib.load(MODEL_PATH) if MODEL_PATH.exists() else None
 
-if not MODEL_PATH.exists():
-    st.warning("The trained model isn't here yet. Run `python train_model.py` in the project folder first, then refresh this page.")
-    st.code("python train_model.py")
+model = load_model()
+if model is None:
+    st.error("The model file live_har_model.joblib is missing. Follow README.md to train it first.")
     st.stop()
 
-bundle = joblib.load(MODEL_PATH)
-model = bundle["model"]
-feature_names = bundle["feature_names"]
+sensor_component = components.declare_component("har_motion_sensor", path=str(ROOT / "motion_sensor_frontend"))
+event = sensor_component(key="motion_sensor", default={"status": "idle"})
+status = event.get("status", "idle") if isinstance(event, dict) else "idle"
+if status == "started":
+    st.info("Sensor capture started. The first prediction appears after a short window of movement.")
+elif status == "permission_denied":
+    st.error("Motion sensor permission was denied. Check browser permissions and try again.")
+elif status == "unsupported":
+    st.error("This browser does not provide motion data. Try the HTTPS site in Chrome on Android.")
+elif status == "stopped":
+    st.info("Detection stopped.")
+elif status == "error":
+    st.error(event.get("message", "Could not start motion sensing."))
 
-tab1, tab2, tab3 = st.tabs(["Try a demo", "Upload feature CSV", "About"])
+def feature_vector(samples):
+    arr = np.asarray(samples, dtype=np.float64)
+    if arr.ndim != 2 or arr.shape[1] != 9 or arr.shape[0] < 32:
+        return None
+    feats = []
+    for j in range(9):
+        x = arr[:, j]
+        dx = np.diff(x)
+        feats.extend([np.mean(x), np.std(x), np.min(x), np.max(x), np.sqrt(np.mean(x*x)), np.mean(np.abs(x)), np.mean(dx), np.std(dx), np.sqrt(np.mean(dx*dx))])
+    for cols in [(0,1,2), (3,4,5), (6,7,8)]:
+        mag = np.sqrt(np.sum(arr[:, cols] ** 2, axis=1))
+        feats.extend([np.mean(mag), np.std(mag), np.min(mag), np.max(mag), np.sqrt(np.mean(mag*mag))])
+    return np.asarray(feats, dtype=np.float32).reshape(1, -1)
 
-with tab1:
-    st.subheader("Try a sample from the test dataset")
-    st.write("Choose a sample row and see the model's prediction. This is useful for demonstrating the app.")
-    sample_path = DATA_DIR / "demo_samples.csv"
-    if sample_path.exists():
-        samples = pd.read_csv(sample_path)
-        idx = st.number_input("Sample row", min_value=0, max_value=max(0, len(samples)-1), value=0, step=1)
-        row = samples.iloc[[int(idx)]]
-        true_label = int(row["activity_label"].iloc[0])
-        X = row[feature_names]
-        pred = int(model.predict(X)[0])
-        probs = model.predict_proba(X)[0]
-        st.metric("Predicted activity", ACTIVITIES.get(pred, str(pred)))
-        st.caption(f"Dataset label for this sample: {ACTIVITIES.get(true_label, str(true_label))}")
-        st.bar_chart(pd.DataFrame({"Probability": probs}, index=[ACTIVITIES.get(int(c), str(c)) for c in model.classes_]))
+if isinstance(event, dict) and event.get("status") == "window":
+    X = feature_vector(event.get("samples", []))
+    if X is not None:
+        pred = model.predict(X)[0]
+        st.subheader("Latest prediction")
+        st.metric("Predicted activity", str(pred).replace("_", " ").title())
+        if hasattr(model, "predict_proba"):
+            probs = model.predict_proba(X)[0]
+            classes = list(model.classes_)
+            st.caption("Model scores (not calibrated probabilities):")
+            for i in np.argsort(probs)[::-1][:3]:
+                st.write(f"**{str(classes[i]).replace('_', ' ').title()}** — {probs[i]:.0%}")
+                st.progress(float(np.clip(probs[i], 0, 1)))
     else:
-        st.warning("Demo samples are missing. Run `python train_model.py` again.")
+        st.warning("Waiting for enough sensor samples. Keep moving naturally.")
 
-with tab2:
-    st.subheader("Upload a CSV")
-    st.write("Your CSV must contain the 561 UCI HAR feature columns. An optional `activity_label` column is ignored for prediction.")
-    uploaded = st.file_uploader("Choose feature CSV", type=["csv"])
-    if uploaded is not None:
-        try:
-            df = pd.read_csv(uploaded)
-            missing = [c for c in feature_names if c not in df.columns]
-            if missing:
-                st.error(f"This CSV is missing {len(missing)} required feature columns. Please use the UCI HAR feature format. First missing columns: {missing[:8]}")
-            else:
-                X = df[feature_names].apply(pd.to_numeric, errors="coerce")
-                if X.isna().any().any():
-                    st.error("Some feature cells are blank or non-numeric. Please clean the CSV and upload again.")
-                else:
-                    preds = model.predict(X)
-                    result = df.copy()
-                    result["predicted_activity"] = [ACTIVITIES.get(int(p), str(p)) for p in preds]
-                    st.success(f"Predicted activities for {len(result)} row(s).")
-                    st.dataframe(result[["predicted_activity"]].join(df.head(0)), use_container_width=True)
-                    st.dataframe(result[["predicted_activity"]], use_container_width=True)
-                    st.download_button("Download predictions CSV", result.to_csv(index=False).encode("utf-8"), "har_predictions.csv", "text/csv")
-        except Exception as e:
-            st.error(f"Couldn't read this file: {e}")
-
-with tab3:
-    st.subheader("What this app does")
-    st.markdown("""
-- **Dataset:** UCI Human Activity Recognition Using Smartphones (30 volunteers, six activities).
-- **Model:** Random Forest classifier trained on the dataset's 561 engineered sensor features.
-- **Input:** one row per 2.56-second sensor window, represented by 561 feature columns.
-- **Important limitation:** the deployed website does not automatically access accelerometer/gyroscope sensors on your phone. To support live sensor capture, the app needs an additional browser sensor interface and a compatible data pipeline.
-""")
-    st.caption("For an academic project, describe the current version as a deployed HAR prediction demo unless you add and test live phone-sensor capture.")
+st.caption("Activities: walking, walking upstairs/downstairs, sitting, standing, and laying. Browser sensor readings may vary by phone and operating system.")
