@@ -156,4 +156,3 @@ st.caption(
     "Activities: walking, walking upstairs/downstairs, sitting, standing, "
     "and laying. Browser sensor readings may vary by phone and operating system."
 )
-```
