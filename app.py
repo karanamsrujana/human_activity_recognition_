@@ -1,4 +1,3 @@
-
 from pathlib import Path
 from collections import Counter, deque
 
@@ -17,14 +16,6 @@ ROOT = Path(__file__).parent
 MODEL_PATH = ROOT / "live_har_model.joblib"
 
 st.title("📱 Live Human Activity Recognition")
-st.write(
-    "Use your phone's motion sensors to estimate activity "
-    "after pressing Start Detection."
-)
-st.warning(
-    "Research prototype only—not a medical or safety device. "
-    "Phone placement and sensor differences can affect predictions."
-)
 
 
 @st.cache_resource
@@ -37,10 +28,7 @@ def load_model():
 model = load_model()
 
 if model is None:
-    st.error(
-        "The model file live_har_model.joblib is missing. "
-        "Please upload it to the repository root."
-    )
+    st.error("The model file live_har_model.joblib is missing.")
     st.stop()
 
 
@@ -56,14 +44,10 @@ event = sensor_component(
 
 status = event.get("status", "idle") if isinstance(event, dict) else "idle"
 
-if status == "started":
-    st.info("Sensor capture started. Waiting for sensor samples...")
-elif status == "permission_denied":
+if status == "permission_denied":
     st.error("Motion sensor permission was denied. Check browser permissions.")
 elif status == "unsupported":
     st.error("Motion sensors are unsupported. Try Chrome on Android using HTTPS.")
-elif status == "stopped":
-    st.info("Detection stopped.")
 elif status == "error":
     st.error(event.get("message", "Could not start motion sensing."))
 
@@ -110,49 +94,18 @@ def feature_vector(samples):
 if "prediction_history" not in st.session_state:
     st.session_state.prediction_history = deque(maxlen=5)
 
-if isinstance(event, dict) and event.get("status") == "window":
+if status == "stopped":
+    st.session_state.prediction_history.clear()
+
+if status == "window":
     X = feature_vector(event.get("samples", []))
 
-    if X is None:
-        st.warning("Waiting for enough sensor samples. Please keep the phone steady.")
-    else:
+    if X is not None:
         raw_pred = model.predict(X)[0]
-
         st.session_state.prediction_history.append(raw_pred)
 
-        # Display the most frequent of the last five predictions.
+        # Show the most frequent of the last five predictions.
         history = list(st.session_state.prediction_history)
         pred = Counter(history).most_common(1)[0][0]
 
-        st.subheader("Latest prediction")
-        st.metric(
-            "Predicted activity",
-            str(pred).replace("_", " ").title(),
-        )
-
-        if hasattr(model, "predict_proba"):
-            probs = model.predict_proba(X)[0]
-            classes = list(model.classes_)
-
-            st.caption(
-                "Current window's model scores "
-                "(not calibrated probabilities; may differ from the smoothed label):"
-            )
-
-            for i in np.argsort(probs)[::-1][:3]:
-                st.write(
-                    f"**{str(classes[i]).replace('_', ' ').title()}** "
-                    f"— {probs[i]:.0%}"
-                )
-                st.progress(float(np.clip(probs[i], 0, 1)))
-
-elif status == "started":
-    st.info(
-        "Waiting for the first complete sensor window. "
-        "Keep the phone in a consistent position."
-    )
-
-st.caption(
-    "Activities: walking, walking upstairs/downstairs, sitting, standing, "
-    "and laying. Browser sensor readings may vary by phone and operating system."
-)
+        st.metric("Predicted activity", str(pred).replace("_", " ").title())
