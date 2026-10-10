@@ -1,0 +1,135 @@
+from collections import deque
+from pathlib import Path
+
+import joblib
+import numpy as np
+import streamlit as st
+import streamlit.components.v1 as components
+
+st.set_page_config(
+    page_title="Live Activity Recognition",
+    page_icon="📱",
+    layout="centered",
+)
+
+ROOT = Path(__file__).parent
+MODEL_PATH = ROOT / "live_har_model.joblib"
+
+st.title("📱 Live Activity Recognition")
+
+
+@st.cache_resource
+def load_model():
+    if MODEL_PATH.exists():
+        return joblib.load(MODEL_PATH)
+    return None
+
+
+model = load_model()
+
+if model is None:
+    st.error("Model file live_har_model.joblib is missing from the repository root.")
+    st.stop()
+
+
+sensor_component = components.declare_component(
+    "har_motion_sensor",
+    path=str(ROOT / "motion_sensor_frontend"),
+)
+
+event = sensor_component(
+    key="motion_sensor",
+    default={"status": "idle"},
+)
+
+status = event.get("status", "idle") if isinstance(event, dict) else "idle"
+
+if status == "permission_denied":
+    st.error("Motion sensor permission was denied. Check browser permissions.")
+elif status == "unsupported":
+    st.error("Motion sensors are unsupported. Try Chrome on Android over HTTPS.")
+elif status == "error":
+    st.error(event.get("message", "Could not start motion sensing."))
+
+
+def feature_vector(samples):
+    arr = np.asarray(samples, dtype=np.float64)
+
+    if arr.ndim != 2 or arr.shape[1] != 9 or arr.shape[0] < 32:
+        return None
+
+    feats = []
+
+    for j in range(9):
+        x = arr[:, j]
+        dx = np.diff(x)
+
+        feats.extend([
+            np.mean(x),
+            np.std(x),
+            np.min(x),
+            np.max(x),
+            np.sqrt(np.mean(x * x)),
+            np.mean(np.abs(x)),
+            np.mean(dx),
+            np.std(dx),
+            np.sqrt(np.mean(dx * dx)),
+        ])
+
+    for cols in [(0, 1, 2), (3, 4, 5), (6, 7, 8)]:
+        mag = np.sqrt(np.sum(arr[:, cols] ** 2, axis=1))
+
+        feats.extend([
+            np.mean(mag),
+            np.std(mag),
+            np.min(mag),
+            np.max(mag),
+            np.sqrt(np.mean(mag * mag)),
+        ])
+
+    return np.asarray(feats, dtype=np.float32).reshape(1, -1)
+
+
+# Keep the last 5 windows' class probabilities between Streamlit reruns.
+if "prob_history" not in st.session_state:
+    st.session_state.prob_history = deque(maxlen=5)
+if "last_capture" not in st.session_state:
+    st.session_state.last_capture = None
+
+if status == "stopped":
+    st.session_state.prob_history.clear()
+    st.session_state.last_capture = None
+
+elif status == "window":
+    captured_at = event.get("capturedAt")
+    # Ignore the same window if Streamlit reruns for another reason.
+    if captured_at != st.session_state.last_capture:
+        st.session_state.last_capture = captured_at
+        X = feature_vector(event.get("samples", []))
+        if X is not None:
+            st.session_state.prob_history.append(model.predict_proba(X)[0])
+
+
+def pretty(name):
+    return str(name).replace("_", " ").title()
+
+
+history = st.session_state.prob_history
+
+if history:
+    # Average over recent windows so the label and the confidence agree.
+    probs = np.mean(history, axis=0)
+    classes = list(model.classes_)
+    best = int(np.argmax(probs))
+
+    col1, col2 = st.columns(2)
+    col1.metric("Activity", pretty(classes[best]))
+    col2.metric("Confidence", f"{probs[best]:.0%}")
+
+    for i in np.argsort(probs)[::-1]:
+        st.progress(
+            float(np.clip(probs[i], 0, 1)),
+            text=f"{pretty(classes[i])} — {probs[i]:.0%}",
+        )
+elif status == "started":
+    st.caption("Collecting sensor data…")
