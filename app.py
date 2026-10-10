@@ -51,7 +51,20 @@ def feature_vector(samples):
 if isinstance(event, dict) and event.get("status") == "window":
     X = feature_vector(event.get("samples", []))
     if X is not None:
-        pred = model.predict(X)[0]
+       pred = model.predict(X)[0]
+
+if "prediction_history" not in st.session_state:
+    st.session_state.prediction_history = []
+
+st.session_state.prediction_history.append(pred)
+st.session_state.prediction_history = (
+    st.session_state.prediction_history[-5:]
+)
+
+pred = max(
+    set(st.session_state.prediction_history),
+    key=st.session_state.prediction_history.count
+)
         st.subheader("Latest prediction")
         st.metric("Predicted activity", str(pred).replace("_", " ").title())
         if hasattr(model, "predict_proba"):
