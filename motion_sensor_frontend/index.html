@@ -1,16 +1,95 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
-body{margin:0;font-family:system-ui,-apple-system,sans-serif;color:#262730}.wrap{border:1px solid #d0d4da;border-radius:12px;padding:14px}.buttons{display:flex;gap:10px;flex-wrap:wrap}button{border:0;border-radius:8px;padding:10px 16px;font-size:15px;font-weight:600;cursor:pointer}#start{background:#ff4b4b;color:white}#stop{background:#eceef2;color:#222}#status{margin-top:10px;font-size:14px}#hint{margin-top:6px;color:#666;font-size:12px}
-</style></head><body><div class="wrap"><div class="buttons"><button id="start">▶ Start Detection</button><button id="stop" disabled>■ Stop Detection</button></div><div id="status" role="status">Detection is off.</div><div id="hint">A prediction is sent after each 128-sample window.</div></div>
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{margin:0;font-family:system-ui,-apple-system,sans-serif;color:#262730}
+.wrap{border:1px solid #d0d4da;border-radius:12px;padding:14px}
+.buttons{display:flex;gap:10px;flex-wrap:wrap}
+button{border:0;border-radius:8px;padding:10px 16px;font-size:15px;font-weight:600;cursor:pointer}
+#start{background:#ff4b4b;color:white}#stop{background:#eceef2;color:#222}
+#status{margin-top:10px;font-size:14px}#hint{margin-top:6px;color:#666;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="buttons"><button id="start">▶ Start Detection</button><button id="stop" disabled>■ Stop Detection</button></div>
+  <div id="status" role="status">Detection is off.</div>
+  <div id="hint">Motion is resampled to approximately 50 Hz to better match the training dataset.</div>
+</div>
 <script>
 (function(){
-const startBtn=document.getElementById('start'),stopBtn=document.getElementById('stop'),statusEl=document.getElementById('status');let running=false,samples=[];
-function post(value){window.parent.postMessage({isStreamlitMessage:true,type:'streamlit:setComponentValue',value:value,dataType:'json'},'*')}
-function ready(){window.parent.postMessage({isStreamlitMessage:true,type:'streamlit:componentReady',apiVersion:1},'*');window.parent.postMessage({isStreamlitMessage:true,type:'streamlit:setFrameHeight',height:150},'*')}
-function sendStatus(text,payload){statusEl.textContent=text;post(payload)}
-function num(v){return typeof v==='number'&&Number.isFinite(v)?v:0}
-async function start(){if(running)return;if(!('DeviceMotionEvent' in window)){sendStatus('This browser does not support motion sensing.',{status:'unsupported'});return}try{if(typeof DeviceMotionEvent.requestPermission==='function'){const p=await DeviceMotionEvent.requestPermission();if(p!=='granted'){sendStatus('Motion permission was not granted.',{status:'permission_denied'});return}}samples=[];running=true;startBtn.disabled=true;stopBtn.disabled=false;sendStatus('Sensor capture is running. Move naturally for a few seconds.',{status:'started'});window.addEventListener('devicemotion',onMotion,true)}catch(e){running=false;startBtn.disabled=false;stopBtn.disabled=true;sendStatus('Could not start sensors. Check browser permissions.',{status:'error',message:String(e)})}}
-function onMotion(e){if(!running)return;const t=e.accelerationIncludingGravity||{},b=e.acceleration||{},r=e.rotationRate||{};const totalX=num(t.x)/9.80665,totalY=num(t.y)/9.80665,totalZ=num(t.z)/9.80665;const bodyX=b.x==null?0:num(b.x)/9.80665,bodyY=b.y==null?0:num(b.y)/9.80665,bodyZ=b.z==null?0:num(b.z)/9.80665;const gx=num(r.alpha)*Math.PI/180,gy=num(r.beta)*Math.PI/180,gz=num(r.gamma)*Math.PI/180;samples.push([bodyX,bodyY,bodyZ,gx,gy,gz,totalX,totalY,totalZ]);if(samples.length>=128){const batch=samples.slice(0,128);samples=samples.slice(64);post({status:'window',samples:batch,capturedAt:Date.now()});statusEl.textContent='Sensor capture is running. Window sent for prediction.'}}
-function stop(){if(running){running=false;window.removeEventListener('devicemotion',onMotion,true);samples=[];startBtn.disabled=false;stopBtn.disabled=true}sendStatus('Detection stopped.',{status:'stopped'})}
-startBtn.addEventListener('click',start);stopBtn.addEventListener('click',stop);ready();
+  const startBtn=document.getElementById('start'), stopBtn=document.getElementById('stop'), statusEl=document.getElementById('status');
+  const RATE=20, WINDOW=128, STRIDE=64;
+  let running=false, samples=[], previous=null, nextSampleTime=null, gravity=[0,0,0];
+
+  function post(value){window.parent.postMessage({isStreamlitMessage:true,type:'streamlit:setComponentValue',value:value,dataType:'json'},'*')}
+  function ready(){window.parent.postMessage({isStreamlitMessage:true,type:'streamlit:componentReady',apiVersion:1},'*');window.parent.postMessage({isStreamlitMessage:true,type:'streamlit:setFrameHeight',height:150},'*')}
+  function sendStatus(text,payload){statusEl.textContent=text;post(payload)}
+  function num(v){return typeof v==='number'&&Number.isFinite(v)?v:null}
+  function vector(e){
+    const t=e.accelerationIncludingGravity||{}, b=e.acceleration||{}, r=e.rotationRate||{};
+    const total=[num(t.x),num(t.y),num(t.z)].map(v=>v===null?0:v/9.80665);
+    // Prefer the device's linear acceleration. If unavailable, estimate it by
+    // subtracting a slowly changing gravity component from total acceleration.
+    let body;
+    if([b.x,b.y,b.z].every(v=>num(v)!==null)){
+      body=[b.x,b.y,b.z].map(v=>v/9.80665);
+    }else{
+      gravity=gravity.map((g,i)=>0.9*g+0.1*total[i]);
+      body=total.map((v,i)=>v-gravity[i]);
+    }
+    // DeviceMotion rotationRate uses alpha about z, beta about x, gamma about y.
+    const alpha=num(r.alpha), beta=num(r.beta), gamma=num(r.gamma);
+    const gyro=[beta,gamma,alpha].map(v=>v===null?0:v*Math.PI/180);
+    return [...body,...gyro,...total];
+  }
+  function lerp(a,b,f){return a.map((v,i)=>v+(b[i]-v)*f)}
+  function onMotion(e){
+    if(!running)return;
+    const now=(typeof e.timeStamp==='number'&&Number.isFinite(e.timeStamp))?e.timeStamp:performance.now();
+    const current=vector(e);
+    if(!previous){previous={time:now,values:current};nextSampleTime=now;return}
+    if(now<=previous.time)return;
+    // Interpolate onto a fixed 50 Hz timeline instead of treating arbitrary
+    // browser event frequency as if it were the dataset's 50 Hz sampling rate.
+    while(nextSampleTime<=now){
+      const f=Math.max(0,Math.min(1,(nextSampleTime-previous.time)/(now-previous.time)));
+      samples.push(lerp(previous.values,current,f));
+      nextSampleTime+=RATE;
+      if(samples.length>=WINDOW){
+        const batch=samples.slice(0,WINDOW);
+        post({status:'window',samples:batch,capturedAt:Date.now()});
+        samples=samples.slice(WINDOW-STRIDE);
+        statusEl.textContent='Sensor capture is running. Window sent for prediction.';
+      }
+    }
+    previous={time:now,values:current};
+  }
+  async function start(){
+    if(running)return;
+    if(!('DeviceMotionEvent' in window)){sendStatus('This browser does not support motion sensing.',{status:'unsupported'});return}
+    try{
+      if(typeof DeviceMotionEvent.requestPermission==='function'){
+        const p=await DeviceMotionEvent.requestPermission();
+        if(p!=='granted'){sendStatus('Motion permission was not granted.',{status:'permission_denied'});return}
+      }
+      samples=[];previous=null;nextSampleTime=null;gravity=[0,0,0];running=true;
+      startBtn.disabled=true;stopBtn.disabled=false;
+      sendStatus('Sensor capture is running. Keep the phone steady in a natural position for a few seconds.',{status:'started'});
+      window.addEventListener('devicemotion',onMotion,true);
+    }catch(e){
+      running=false;startBtn.disabled=false;stopBtn.disabled=true;
+      sendStatus('Could not start sensors. Check browser permissions.',{status:'error',message:String(e)});
+    }
+  }
+  function stop(){
+    if(running){running=false;window.removeEventListener('devicemotion',onMotion,true);samples=[];previous=null;startBtn.disabled=false;stopBtn.disabled=true}
+    sendStatus('Detection stopped.',{status:'stopped'});
+  }
+  startBtn.addEventListener('click',start);stopBtn.addEventListener('click',stop);ready();
 })();
-</script></body></html>
+</script>
+</body>
+</html>
