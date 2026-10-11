@@ -95,7 +95,7 @@ Sensor access depends on the device, browser, and permissions. On many mobile br
 ## Deploy on Streamlit Community Cloud
 
 1. Push the project files and folders to your GitHub repository.
-2. Confirm that the main script is named exactly `app.py` (not `app (3).py` or another renamed copy).
+2. Confirm that the main script is named exactly `app.py`.
 3. In [Streamlit Community Cloud](https://share.streamlit.io/), create or open the app.
 4. Select the correct repository and branch.
 5. Set **Main file path** to `app.py` if the file is in the repository root.
