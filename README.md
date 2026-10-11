@@ -135,7 +135,3 @@ Keep `live_har_model.joblib` and `motion_sensor_frontend/` in the same project r
 - `train_live_model.py` is included in the repository for model-training workflow.
 - `demo_samples.csv` is included in the repository; consult the training script or project code for its exact intended use.
 - The feature extraction code expects sensor windows containing nine channels and at least 32 samples. Ensure any replacement model is trained with compatible features and the same feature order.
-
-## License
-
-Add a license here if you intend to distribute this project publicly.
