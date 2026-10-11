@@ -1,5 +1,5 @@
 from pathlib import Path
-from collections import Counter, deque
+from collections import deque
 
 import joblib
 import numpy as np
@@ -90,9 +90,9 @@ def feature_vector(samples):
 
 
 if "prediction_history" not in st.session_state:
-    st.session_state.prediction_history = deque(maxlen=5)
+    st.session_state.prediction_history = deque(maxlen=3)
 if "confidence_history" not in st.session_state:
-    st.session_state.confidence_history = deque(maxlen=5)
+    st.session_state.confidence_history = deque(maxlen=3)
 
 if status == "stopped":
     st.session_state.prediction_history.clear()
@@ -119,11 +119,10 @@ if status == "window":
             except (ValueError, TypeError, IndexError):
                 confidence = None
 
-        st.session_state.prediction_history.append(raw_pred)
-        st.session_state.confidence_history.append((raw_pred, confidence))
-        pred = Counter(st.session_state.prediction_history).most_common(1)[0][0]
-        matching_confidences = [c for label, c in st.session_state.confidence_history if label == pred and c is not None]
-        shown_confidence = sum(matching_confidences) / len(matching_confidences) if matching_confidences else None
+        # Show the latest model result instead of majority-voting across old windows.
+        # This avoids a previous LAYING prediction masking a newer SITTING prediction.
+        pred = raw_pred
+        shown_confidence = confidence
 
         activity = str(pred).replace("_", " ").title()
         if shown_confidence is None:
