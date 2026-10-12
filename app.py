@@ -328,14 +328,27 @@ st.markdown(
 
 @st.cache_resource
 def load_model():
-    if MODEL_PATH.exists():
+    """Load the trained estimator and show a useful message if it cannot be loaded."""
+    if not MODEL_PATH.exists():
+        return None
+    try:
         return joblib.load(MODEL_PATH)
-    return None
+    except Exception as exc:
+        st.error(
+            "The model file exists, but it could not be loaded. "
+            "Check that live_har_model.joblib was created with a compatible "
+            "Python/scikit-learn version."
+        )
+        st.exception(exc)
+        st.stop()
 
 
 model = load_model()
 if model is None:
-    st.error("Model file not found: live_har_model.joblib")
+    st.error(
+        "Model file not found: live_har_model.joblib. "
+        "Place your trained model file in the same folder as app.py."
+    )
     st.stop()
 
 sensor_component = components.declare_component(
@@ -409,6 +422,15 @@ with col_main:
     if status == "window":
         X = feature_vector(event.get("samples", []))
         if X is not None:
+            expected_features = getattr(model, "n_features_in_", None)
+            if expected_features is not None and int(expected_features) != X.shape[1]:
+                st.error(
+                    f"Model expects {expected_features} features, but this app creates "
+                    f"{X.shape[1]}. The model must be trained using the same feature "
+                    "extraction logic as feature_vector() in app.py."
+                )
+                st.stop()
+
             raw_pred = model.predict(X)[0]
             confidence = None
             display_pred = raw_pred
@@ -416,14 +438,8 @@ with col_main:
                 try:
                     probabilities = model.predict_proba(X)[0]
                     classes = list(getattr(model, "classes_", []))
-                    normalized_classes = {str(label).strip().upper(): i for i, label in enumerate(classes)}
-                    normalized_pred = str(raw_pred).strip().upper()
-                    if normalized_pred == "LAYING":
-                        display_pred = "SITTING"
-                        sitting_index = normalized_classes.get("SITTING")
-                        if sitting_index is not None:
-                            confidence = float(probabilities[sitting_index]) * 100
-                    elif raw_pred in classes:
+                    # Match the predicted label to the model's class order.
+                    if raw_pred in classes:
                         confidence = float(probabilities[classes.index(raw_pred)]) * 100
                 except (ValueError, TypeError, IndexError):
                     confidence = None
