@@ -1,12 +1,5 @@
 from pathlib import Path
 import streamlit.components.v1 as components
-
-ROOT = Path(__file__).parent
-
-har_motion_sensor = components.declare_component(
-    "har_motion_sensor",
-    path=str(ROOT / "motion_sensor_frontend")
-)
 from collections import Counter, deque
 
 import joblib
