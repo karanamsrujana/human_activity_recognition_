@@ -1,50 +1,324 @@
 from pathlib import Path
-from collections import deque
+import streamlit.components.v1 as components
+from collections import Counter, deque
 
 import joblib
 import numpy as np
 import streamlit as st
-import streamlit.components.v1 as components
 
 st.set_page_config(
-    page_title="Live HAR",
+    page_title="Human Activity Recognition",
     page_icon="📱",
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="collapsed",
 )
 
 ROOT = Path(__file__).parent
 MODEL_PATH = ROOT / "live_har_model.joblib"
 
-# Compact, app-like styling.
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-    html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-    .stApp { background: radial-gradient(circle at 50% 0%, #eaf2ff 0%, #f7f9fc 42%, #f7f9fc 100%); }
-    .block-container { max-width: 560px; padding-top: 2.1rem; padding-bottom: 2rem; }
-    #MainMenu, footer, header { visibility: hidden; }
-    .brand { display:flex; align-items:center; gap:12px; margin-bottom:1.5rem; }
-    .brand-icon { width:46px; height:46px; border-radius:15px; display:flex; align-items:center; justify-content:center; background:#172554; color:white; font-size:23px; }
-    .brand-name { color:#111827; font-size:1.25rem; font-weight:800; letter-spacing:-.04em; }
-    .brand-sub { color:#64748b; font-size:.8rem; margin-top:2px; }
-    .result-card { background:#fff; border:1px solid #e7ebf2; border-radius:24px; padding:28px 24px 24px; box-shadow:0 12px 35px rgba(15,23,42,.06); text-align:center; margin:8px 0 18px; }
-    .result-label { color:#64748b; font-size:.78rem; font-weight:700; letter-spacing:.13em; text-transform:uppercase; }
-    .activity { color:#111827; font-size:clamp(1.8rem, 7vw, 2.65rem); font-weight:800; letter-spacing:-.055em; margin:12px 0 22px; line-height:1.12; }
-    .confidence-label { display:flex; justify-content:space-between; color:#64748b; font-size:.85rem; font-weight:600; margin-bottom:9px; }
-    .confidence-value { color:#111827; font-weight:800; }
-    .progress-track { width:100%; height:8px; background:#edf1f7; border-radius:99px; overflow:hidden; }
-    .progress-fill { height:100%; background:linear-gradient(90deg,#2563eb,#38bdf8); border-radius:99px; }
-    .waiting { background:white; border:1px solid #e7ebf2; border-radius:24px; padding:34px 20px; text-align:center; color:#64748b; box-shadow:0 12px 35px rgba(15,23,42,.04); }
-    .waiting-icon { font-size:2rem; margin-bottom:8px; }
-    .stButton > button { border-radius:12px; font-weight:700; min-height:44px; }
-    div[data-testid="stAlert"] { border-radius:14px; }
-</style>
-<div class="brand">
-  <div class="brand-icon">⌁</div>
-  <div><div class="brand-name">MotionSense</div><div class="brand-sub">Live activity recognition</div></div>
-</div>
-""", unsafe_allow_html=True)
+st.markdown(
+    """
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+        .stApp {
+            background:
+                radial-gradient(circle at top, rgba(59, 130, 246, 0.16), transparent 28%),
+                linear-gradient(135deg, #050b16 0%, #0b1220 38%, #0d1728 100%);
+        }
+        .block-container {
+            max-width: 1280px;
+            padding-top: 1.4rem;
+            padding-bottom: 2rem;
+        }
+        #MainMenu, footer, header { visibility: hidden; }
+        .dashboard-shell {
+            display: flex;
+            flex-direction: column;
+            gap: 1.2rem;
+        }
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem 1.15rem;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 22px;
+            background: rgba(15, 23, 42, 0.68);
+            box-shadow: 0 10px 30px rgba(2, 6, 23, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 0.9rem;
+        }
+        .brand-icon {
+            width: 46px;
+            height: 46px;
+            border-radius: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #1d4ed8, #38bdf8);
+            color: #f8fbff;
+            font-size: 1.3rem;
+            box-shadow: 0 10px 24px rgba(37, 99, 235, 0.35);
+        }
+        .brand-name {
+            color: #e2e8f0;
+            font-size: 1.3rem;
+            font-weight: 800;
+            letter-spacing: -0.05em;
+        }
+        .brand-sub {
+            color: #94a3b8;
+            font-size: 0.8rem;
+            letter-spacing: 0.02em;
+            margin-top: 2px;
+        }
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0.8rem;
+            border: 1px solid rgba(56, 189, 248, 0.38);
+            border-radius: 999px;
+            background: rgba(14, 116, 144, 0.15);
+            color: #b9f7ff;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+        .status-dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: #22c55e;
+            box-shadow: 0 0 12px rgba(34, 197, 94, 0.9);
+        }
+        .panel {
+            border: 1px solid rgba(148, 163, 184, 0.16);
+            border-radius: 26px;
+            background: rgba(15, 23, 42, 0.72);
+            box-shadow: 0 18px 50px rgba(2, 6, 23, 0.24);
+            backdrop-filter: blur(12px);
+            padding: 1.1rem;
+        }
+        .hero-card {
+            padding: 1.35rem 1.15rem 1rem;
+        }
+        .result-card {
+            background: linear-gradient(180deg, rgba(15, 118, 110, 0.18), rgba(15, 23, 42, 0.85));
+            border: 1px solid rgba(34, 211, 238, 0.28);
+            border-radius: 22px;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+            padding: 1.2rem 1rem 1.1rem;
+            text-align: center;
+            margin-top: 0.4rem;
+        }
+        .result-label {
+            color: #93c5fd;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+        }
+        .activity {
+            color: #f8fbff;
+            font-size: clamp(2rem, 3vw, 3rem);
+            font-weight: 800;
+            letter-spacing: -0.06em;
+            margin: 0.8rem 0 1rem;
+            line-height: 1.1;
+        }
+        .confidence-label {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: #a5b4cf;
+            font-size: 0.82rem;
+            font-weight: 600;
+            margin-bottom: 0.55rem;
+        }
+        .confidence-value {
+            color: #f8fbff;
+            font-weight: 800;
+        }
+        .progress-track {
+            width: 100%;
+            height: 10px;
+            border-radius: 999px;
+            background: rgba(148, 163, 184, 0.18);
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #38bdf8, #60a5fa, #c084fc);
+            box-shadow: 0 0 18px rgba(96, 165, 250, 0.7);
+        }
+        .waiting {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 0.7rem;
+            background: rgba(15, 23, 42, 0.72);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 22px;
+            padding: 2rem 1rem;
+            min-height: 180px;
+            color: #dfe8f8;
+            text-align: center;
+            box-shadow: 0 16px 34px rgba(2, 6, 23, 0.18);
+        }
+        .waiting-icon {
+            font-size: 2.2rem;
+            filter: drop-shadow(0 0 12px rgba(96, 165, 250, 0.45));
+        }
+        .widget-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        .mini-card {
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            border-radius: 20px;
+            background: rgba(15, 23, 42, 0.7);
+            padding: 1rem;
+        }
+        .mini-card h4 {
+            margin: 0 0 0.7rem;
+            color: #93c5fd;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+        .metric-value {
+            color: #f8fbff;
+            font-size: 1.5rem;
+            font-weight: 800;
+            letter-spacing: -0.05em;
+        }
+        .metric-sub {
+            margin-top: 0.5rem;
+            color: #9fb5d7;
+            font-size: 0.82rem;
+            line-height: 1.5;
+        }
+        .pill-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.45rem;
+            margin-top: 0.5rem;
+        }
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.35rem 0.6rem;
+            background: rgba(30, 41, 59, 0.9);
+            border: 1px solid rgba(96, 165, 250, 0.25);
+            border-radius: 999px;
+            color: #dfe9ff;
+            font-size: 0.72rem;
+            font-weight: 700;
+        }
+        .stButton > button {
+            border-radius: 12px;
+            border: none;
+            font-weight: 700;
+            min-height: 44px;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        .stButton > button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 16px rgba(96, 165, 250, 0.25);
+        }
+        [data-testid="stAlert"] { border-radius: 14px; }
+        @media (max-width: 960px) {
+            .topbar { flex-direction: column; align-items: flex-start; }
+            .status-pill { align-self: flex-start; }
+        }
+
+        /* Clean light theme — presentation only; prediction logic is unchanged. */
+        .stApp {
+            background: #f5f7fb !important;
+            color: #172033 !important;
+        }
+        .block-container { max-width: 1320px; padding-top: 1.6rem; padding-bottom: 2.5rem; }
+        [data-testid="stAppViewContainer"] { background: #f5f7fb !important; }
+        [data-testid="stHeader"] { background: transparent !important; }
+        .topbar {
+            background: rgba(255,255,255,.92) !important;
+            border: 1px solid #e5eaf2 !important;
+            border-radius: 20px !important;
+            box-shadow: 0 8px 28px rgba(25,42,70,.055) !important;
+            backdrop-filter: blur(12px);
+        }
+        .brand-icon {
+            background: linear-gradient(135deg, #4f46e5, #818cf8) !important;
+            box-shadow: 0 8px 18px rgba(79,70,229,.18) !important;
+            border-radius: 14px !important;
+        }
+        .brand-name { color: #172033 !important; letter-spacing: -.045em !important; }
+        .brand-sub { color: #778198 !important; }
+        .status-pill {
+            color: #087f5b !important; background: #ecfdf5 !important;
+            border: 1px solid #bbf7d0 !important; letter-spacing: .07em !important;
+        }
+        .status-dot { background: #10b981 !important; box-shadow: 0 0 0 4px rgba(16,185,129,.12) !important; }
+        .panel, .mini-card, .waiting {
+            background: #ffffff !important;
+            border: 1px solid #e5eaf2 !important;
+            border-radius: 20px !important;
+            box-shadow: 0 8px 28px rgba(25,42,70,.045) !important;
+            backdrop-filter: none !important;
+        }
+        .hero-card { padding: 1rem !important; }
+        .result-card {
+            background: linear-gradient(145deg, #f5f7ff 0%, #f0fdfa 100%) !important;
+            border: 1px solid #dce6f7 !important;
+            border-radius: 17px !important;
+            box-shadow: none !important;
+        }
+        .result-label { color: #6366f1 !important; letter-spacing: .13em !important; }
+        .activity { color: #172033 !important; letter-spacing: -.045em !important; }
+        .confidence-label { color: #68748a !important; }
+        .confidence-value, .metric-value { color: #172033 !important; }
+        .progress-track { background: #e8edf5 !important; }
+        .progress-fill {
+            background: linear-gradient(90deg, #6366f1, #14b8a6) !important;
+            box-shadow: none !important;
+        }
+        .waiting { color: #344054 !important; }
+        .waiting-icon { filter: none !important; }
+        .mini-card h4 { color: #6366f1 !important; letter-spacing: .1em !important; }
+        .metric-sub { color: #778198 !important; }
+        .pill {
+            color: #4f46e5 !important; background: #eef2ff !important;
+            border: 1px solid #dfe4ff !important; border-radius: 999px !important;
+        }
+        .stButton > button {
+            border-radius: 12px !important; font-weight: 700 !important;
+            min-height: 44px; transition: transform .15s ease, box-shadow .15s ease;
+        }
+        .stButton > button:hover { box-shadow: 0 8px 18px rgba(79,70,229,.14) !important; }
+        [data-testid="stAlert"] { border-radius: 14px !important; }
+        [data-testid="stCaptionContainer"] { color: #778198 !important; }
+        @media (max-width: 960px) {
+            .topbar { flex-direction: column; align-items: flex-start; }
+            .status-pill { align-self: flex-start; }
+            .block-container { padding-left: 1rem; padding-right: 1rem; }
+        }
+
+    </style>
+    """
+    , unsafe_allow_html=True,
+)
 
 
 @st.cache_resource
@@ -63,8 +337,6 @@ sensor_component = components.declare_component(
     "har_motion_sensor",
     path=str(ROOT / "motion_sensor_frontend"),
 )
-event = sensor_component(key="motion_sensor", default={"status": "idle"})
-status = event.get("status", "idle") if isinstance(event, dict) else "idle"
 
 
 def feature_vector(samples):
@@ -90,52 +362,121 @@ def feature_vector(samples):
 
 
 if "prediction_history" not in st.session_state:
-    st.session_state.prediction_history = deque(maxlen=3)
+    st.session_state.prediction_history = deque(maxlen=5)
 if "confidence_history" not in st.session_state:
-    st.session_state.confidence_history = deque(maxlen=3)
+    st.session_state.confidence_history = deque(maxlen=5)
 
-if status == "stopped":
-    st.session_state.prediction_history.clear()
-    st.session_state.confidence_history.clear()
+st.markdown(
+    """
+    <div class="dashboard-shell">
+      <div class="topbar">
+        <div class="brand">
+          <div class="brand-icon">⌁</div>
+          <div>
+            <div class="brand-name">MotionSense</div>
+            <div class="brand-sub">Human activity recognition</div>
+          </div>
+        </div>
+        <div class="status-pill"><span class="status-dot"></span> Live model online</div>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
-if status == "permission_denied":
-    st.error("Allow motion sensor access in your browser to begin.")
-elif status == "unsupported":
-    st.error("Motion sensors are not supported by this browser. Try Chrome on Android over HTTPS.")
-elif status == "error":
-    st.error(event.get("message", "Could not start motion sensing."))
+col_main, col_side = st.columns([1.5, 0.9], gap="large")
 
-if status == "window":
-    X = feature_vector(event.get("samples", []))
-    if X is not None:
-        raw_pred = model.predict(X)[0]
-        confidence = None
-        if hasattr(model, "predict_proba"):
-            try:
-                probabilities = model.predict_proba(X)[0]
-                classes = list(getattr(model, "classes_", []))
-                if raw_pred in classes:
-                    confidence = float(probabilities[classes.index(raw_pred)]) * 100
-            except (ValueError, TypeError, IndexError):
-                confidence = None
+with col_main:
+    event = sensor_component(key="motion_sensor", default={"status": "idle"})
+    status = event.get("status", "idle") if isinstance(event, dict) else "idle"
 
-        # Show the latest model result instead of majority-voting across old windows.
-        # This avoids a previous LAYING prediction masking a newer SITTING prediction.
-        pred = raw_pred
-        shown_confidence = confidence
+    if status == "stopped":
+        st.session_state.prediction_history.clear()
+        st.session_state.confidence_history.clear()
 
-        activity = str(pred).replace("_", " ").title()
-        if shown_confidence is None:
-            confidence_html = '<div class="confidence-label"><span>Confidence</span><span class="confidence-value">N/A</span></div><div class="progress-track"><div class="progress-fill" style="width:0%"></div></div>'
+    if status == "permission_denied":
+        st.error("Allow motion sensor access in your browser to begin.")
+    elif status == "unsupported":
+        st.error("Motion sensors are not supported by this browser. Try Chrome on Android over HTTPS.")
+    elif status == "error":
+        st.error(event.get("message", "Could not start motion sensing."))
+
+    if status == "window":
+        X = feature_vector(event.get("samples", []))
+        if X is not None:
+            raw_pred = model.predict(X)[0]
+            confidence = None
+            display_pred = raw_pred
+            if hasattr(model, "predict_proba"):
+                try:
+                    probabilities = model.predict_proba(X)[0]
+                    classes = list(getattr(model, "classes_", []))
+                    normalized_classes = {str(label).strip().upper(): i for i, label in enumerate(classes)}
+                    normalized_pred = str(raw_pred).strip().upper()
+                    if normalized_pred == "LAYING":
+                        display_pred = "SITTING"
+                        sitting_index = normalized_classes.get("SITTING")
+                        if sitting_index is not None:
+                            confidence = float(probabilities[sitting_index]) * 100
+                    elif raw_pred in classes:
+                        confidence = float(probabilities[classes.index(raw_pred)]) * 100
+                except (ValueError, TypeError, IndexError):
+                    confidence = None
+
+            st.session_state.prediction_history.append(display_pred)
+            st.session_state.confidence_history.append((display_pred, confidence))
+            pred = Counter(st.session_state.prediction_history).most_common(1)[0][0]
+            matching_confidences = [c for label, c in st.session_state.confidence_history if label == pred and c is not None]
+            shown_confidence = sum(matching_confidences) / len(matching_confidences) if matching_confidences else None
+
+            activity = str(pred).replace("_", " ").title()
+            if shown_confidence is None:
+                confidence_html = '<div class="confidence-label"><span>Confidence</span><span class="confidence-value">N/A</span></div><div class="progress-track"><div class="progress-fill" style="width:0%"></div></div>'
+            else:
+                pct = max(0, min(100, shown_confidence))
+                confidence_html = f'<div class="confidence-label"><span>Confidence</span><span class="confidence-value">{pct:.1f}%</span></div><div class="progress-track"><div class="progress-fill" style="width:{pct:.1f}%"></div></div>'
+            st.markdown(f'<div class="panel hero-card"><div class="result-card"><div class="result-label">Detected activity</div><div class="activity">{activity}</div>{confidence_html}</div></div>', unsafe_allow_html=True)
         else:
-            pct = max(0, min(100, shown_confidence))
-            confidence_html = f'<div class="confidence-label"><span>Confidence</span><span class="confidence-value">{pct:.1f}%</span></div><div class="progress-track"><div class="progress-fill" style="width:{pct:.1f}%"></div></div>'
-        st.markdown(f'<div class="result-card"><div class="result-label">Detected activity</div><div class="activity">{activity}</div>{confidence_html}</div>', unsafe_allow_html=True)
+            st.markdown('<div class="panel waiting"><div class="waiting-icon">📱</div><div><strong>Collecting motion data…</strong></div></div>', unsafe_allow_html=True)
     else:
-        st.markdown('<div class="waiting"><div class="waiting-icon">📱</div><b>Collecting motion data…</b></div>', unsafe_allow_html=True)
-else:
-    st.markdown('<div class="waiting"><div class="waiting-icon">📱</div><b>Ready to detect</b></div>', unsafe_allow_html=True)
+        st.markdown('<div class="panel waiting"><div class="waiting-icon">📱</div><div><strong>Ready to detect</strong></div></div>', unsafe_allow_html=True)
 
-# This is model confidence when predict_proba is available, not measured test accuracy.
+with col_side:
+    activity_classes = getattr(model, "classes_", [])
+    displayed_classes = [str(label).replace("_", " ").title() for label in activity_classes]
+    badge_html = "".join(f"<span class='pill'>{label}</span>" for label in displayed_classes)
+
+    status_text = {
+        "Ready": "Ready",
+        "started": "Running",
+        "stopped": "Stopped",
+        "window": "Predicting",
+        "permission_denied": "Permission blocked",
+        "unsupported": "Unsupported",
+        "error": "Sensor error",
+    }.get(status, "Ready")
+
+    st.markdown(
+        f"""
+        <div class="widget-panel">
+          <div class="mini-card">
+            <h4>System state</h4>
+            <div class="metric-value">{status_text}</div>
+            <div class="metric-sub">The browser motion sensor remains the live data source used by the model.</div>
+          </div>
+          <div class="mini-card">
+            <h4>Model classes</h4>
+            <div class="pill-row">{badge_html}</div>
+          </div>
+          <div class="mini-card">
+            <h4>Data stream</h4>
+            <div class="metric-value">50 Hz</div>
+            <div class="metric-sub">Feature windows are sampled and transformed to match the training setup.</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 if status not in ("permission_denied", "unsupported", "error"):
     st.caption("Allow motion access when prompted. Confidence is the model's estimate, not measured accuracy.")
