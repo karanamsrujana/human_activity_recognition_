@@ -6,25 +6,25 @@
   <title>MotionSense Sensor</title>
   <style>
 
-    /* Matching clean light theme for the embedded sensor controls. */
+    /* Matching clean dark theme for the embedded sensor controls. */
     :root {
-      color-scheme: light;
-      --bg: #f5f7fb;
-      --panel: #ffffff;
-      --border: #e5eaf2;
-      --text: #172033;
-      --muted: #778198;
-      --primary: #4f46e5;
-      --danger: #dc2626;
-      --success: #087f5b;
+      color-scheme: dark;
+      --bg: #0b1020;
+      --panel: #12192d;
+      --border: #27324b;
+      --text: #e8edf7;
+      --muted: #9aa8c2;
+      --primary: #6366f1;
+      --danger: #fb7185;
+      --success: #6ee7b7;
     }
     body { padding: 8px 0; background: transparent; color: var(--text); }
     .sensor-card {
       padding: 22px;
       border: 1px solid var(--border);
       border-radius: 20px;
-      background: #fff;
-      box-shadow: 0 8px 28px rgba(25,42,70,.045);
+      background: #12192d;
+      box-shadow: 0 8px 28px rgba(0,0,0,.16);
     }
     .heading { font-size: 18px; font-weight: 750; letter-spacing: -.025em; margin-bottom: 6px; }
     .description { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
@@ -32,11 +32,11 @@
     button { border: 0; border-radius: 11px; padding: 11px 17px; min-height: 44px; font: inherit; font-weight: 700; cursor: pointer; transition: transform .15s ease, box-shadow .15s ease; }
     button:hover:not(:disabled) { transform: translateY(-1px); }
     #start { background: var(--primary); color: #fff; box-shadow: 0 5px 12px rgba(79,70,229,.16); }
-    #stop { background: #eef2f7; color: #344054; }
+    #stop { background: #29334a; color: #e2e8f0; }
     button:disabled { opacity: .48; cursor: not-allowed; }
-    #status { margin-top: 14px; padding: 12px 13px; border-radius: 11px; border: 1px solid var(--border); background: #f8fafc; color: var(--muted); overflow-wrap: anywhere; }
-    #status.ok { color: var(--success); background: #ecfdf5; border-color: #bbf7d0; }
-    #status.error { color: var(--danger); background: #fef2f2; border-color: #fecaca; }
+    #status { margin-top: 14px; padding: 12px 13px; border-radius: 11px; border: 1px solid var(--border); background: #0f172a; color: var(--muted); overflow-wrap: anywhere; }
+    #status.ok { color: var(--success); background: rgba(16,185,129,.12); border-color: #28594c; }
+    #status.error { color: var(--danger); background: rgba(244,63,94,.12); border-color: #713344; }
     .small { margin-top: 11px; color: var(--muted); font-size: 12px; }
   </style>
 </head>
