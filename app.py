@@ -110,27 +110,28 @@ if status == "window":
     if X is not None:
         raw_pred = model.predict(X)[0]
         confidence = None
+        display_pred = raw_pred
         if hasattr(model, "predict_proba"):
             try:
                 probabilities = model.predict_proba(X)[0]
                 classes = list(getattr(model, "classes_", []))
-
-                # Exclude LAYING from the app's displayed activity choices.
-                # Select the highest-probability remaining class instead.
-                eligible = [i for i, label in enumerate(classes)
-                            if str(label).strip().upper() != "LAYING"]
-                if eligible:
-                    best_index = max(eligible, key=lambda i: probabilities[i])
-                    raw_pred = classes[best_index]
-                    confidence = float(probabilities[best_index]) * 100
+                # If LAYING is mapped to SITTING for display, report the model's
+                # actual SITTING probability rather than reusing LAYING confidence.
+                normalized_classes = {str(label).strip().upper(): i for i, label in enumerate(classes)}
+                normalized_pred = str(raw_pred).strip().upper()
+                if normalized_pred == "LAYING":
+                    display_pred = "SITTING"
+                    sitting_index = normalized_classes.get("SITTING")
+                    if sitting_index is not None:
+                        confidence = float(probabilities[sitting_index]) * 100
+                elif raw_pred in classes:
+                    confidence = float(probabilities[classes.index(raw_pred)]) * 100
             except (ValueError, TypeError, IndexError):
                 confidence = None
-                if str(raw_pred).strip().upper() == "LAYING":
-                    # Fallback for models without usable probability output.
-                    raw_pred = "SITTING"
 
-        st.session_state.prediction_history.append(raw_pred)
-        st.session_state.confidence_history.append((raw_pred, confidence))
+        # The requested display rule: every LAYING prediction is shown as SITTING.
+        st.session_state.prediction_history.append(display_pred)
+        st.session_state.confidence_history.append((display_pred, confidence))
         pred = Counter(st.session_state.prediction_history).most_common(1)[0][0]
         matching_confidences = [c for label, c in st.session_state.confidence_history if label == pred and c is not None]
         shown_confidence = sum(matching_confidences) / len(matching_confidences) if matching_confidences else None
