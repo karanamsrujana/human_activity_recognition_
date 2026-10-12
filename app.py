@@ -20,29 +20,178 @@ MODEL_PATH = ROOT / "live_har_model.joblib"
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-    html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-    .stApp { background: radial-gradient(circle at 50% 0%, #eaf2ff 0%, #f7f9fc 42%, #f7f9fc 100%); }
-    .block-container { max-width: 560px; padding-top: 2.1rem; padding-bottom: 2rem; }
-    #MainMenu, footer, header { visibility: hidden; }
-    .brand { display:flex; align-items:center; gap:12px; margin-bottom:1.5rem; }
-    .brand-icon { width:46px; height:46px; border-radius:15px; display:flex; align-items:center; justify-content:center; background:#172554; color:white; font-size:23px; }
-    .brand-name { color:#111827; font-size:1.25rem; font-weight:800; letter-spacing:-.04em; }
-    .brand-sub { color:#64748b; font-size:.8rem; margin-top:2px; }
-    .result-card { background:#fff; border:1px solid #e7ebf2; border-radius:24px; padding:28px 24px 24px; box-shadow:0 12px 35px rgba(15,23,42,.06); text-align:center; margin:8px 0 18px; }
-    .result-label { color:#64748b; font-size:.78rem; font-weight:700; letter-spacing:.13em; text-transform:uppercase; }
-    .activity { color:#111827; font-size:clamp(1.8rem, 7vw, 2.65rem); font-weight:800; letter-spacing:-.055em; margin:12px 0 22px; line-height:1.12; }
-    .confidence-label { display:flex; justify-content:space-between; color:#64748b; font-size:.85rem; font-weight:600; margin-bottom:9px; }
-    .confidence-value { color:#111827; font-weight:800; }
-    .progress-track { width:100%; height:8px; background:#edf1f7; border-radius:99px; overflow:hidden; }
-    .progress-fill { height:100%; background:linear-gradient(90deg,#2563eb,#38bdf8); border-radius:99px; }
-    .waiting { background:white; border:1px solid #e7ebf2; border-radius:24px; padding:34px 20px; text-align:center; color:#64748b; box-shadow:0 12px 35px rgba(15,23,42,.04); }
-    .waiting-icon { font-size:2rem; margin-bottom:8px; }
-    .stButton > button { border-radius:12px; font-weight:700; min-height:44px; }
-    div[data-testid="stAlert"] { border-radius:14px; }
+
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
+    }
+
+    .stApp {
+        background:
+            radial-gradient(circle at 50% 0%, #1e1b3a 0%, #0b0d14 45%, #090b10 100%);
+        color: #f3f4f6;
+    }
+
+    .block-container {
+        max-width: 560px;
+        padding-top: 2.1rem;
+        padding-bottom: 2rem;
+    }
+
+    #MainMenu, footer, header {
+        visibility: hidden;
+    }
+
+    .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 1.5rem;
+    }
+
+    .brand-icon {
+        width: 46px;
+        height: 46px;
+        border-radius: 15px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #8b5cf6, #6366f1);
+        color: white;
+        font-size: 23px;
+        box-shadow: 0 8px 24px rgba(139, 92, 246, 0.25);
+    }
+
+    .brand-name {
+        color: #f9fafb;
+        font-size: 1.25rem;
+        font-weight: 800;
+        letter-spacing: -.04em;
+    }
+
+    .brand-sub {
+        color: #9ca3af;
+        font-size: .8rem;
+        margin-top: 2px;
+    }
+
+    .result-card {
+        background: linear-gradient(145deg, #181824, #11121a);
+        border: 1px solid rgba(167, 139, 250, 0.2);
+        border-radius: 24px;
+        padding: 28px 24px 24px;
+        box-shadow: 0 12px 35px rgba(0, 0, 0, .25);
+        text-align: center;
+        margin: 8px 0 18px;
+    }
+
+    .result-label {
+        color: #a78bfa;
+        font-size: .78rem;
+        font-weight: 700;
+        letter-spacing: .13em;
+        text-transform: uppercase;
+    }
+
+    .activity {
+        color: #fafafa;
+        font-size: clamp(1.8rem, 7vw, 2.65rem);
+        font-weight: 800;
+        letter-spacing: -.055em;
+        margin: 12px 0 22px;
+        line-height: 1.12;
+    }
+
+    .confidence-label {
+        display: flex;
+        justify-content: space-between;
+        color: #9ca3af;
+        font-size: .85rem;
+        font-weight: 600;
+        margin-bottom: 9px;
+    }
+
+    .confidence-value {
+        color: #f9fafb;
+        font-weight: 800;
+    }
+
+    .progress-track {
+        width: 100%;
+        height: 8px;
+        background: #292936;
+        border-radius: 99px;
+        overflow: hidden;
+    }
+
+    .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #8b5cf6, #22d3ee);
+        border-radius: 99px;
+        box-shadow: 0 0 14px rgba(139, 92, 246, .3);
+    }
+
+    .waiting {
+        background: #14151d;
+        border: 1px solid rgba(255, 255, 255, .09);
+        border-radius: 24px;
+        padding: 34px 20px;
+        text-align: center;
+        color: #9ca3af;
+        box-shadow: 0 12px 35px rgba(0, 0, 0, .2);
+    }
+
+    .waiting-icon {
+        font-size: 2rem;
+        margin-bottom: 8px;
+    }
+
+    .stButton > button {
+        background: #181824;
+        color: #f3f4f6;
+        border: 1px solid rgba(167, 139, 250, .25);
+        border-radius: 12px;
+        font-weight: 700;
+        min-height: 44px;
+        transition: all .2s ease;
+    }
+
+    .stButton > button:hover {
+        background: #252238;
+        color: white;
+        border-color: #8b5cf6;
+    }
+
+    div[data-testid="stAlert"] {
+        border-radius: 14px;
+    }
+
+    /* Dark theme for Streamlit text and secondary elements */
+    [data-testid="stCaptionContainer"],
+    .stCaption {
+        color: #9ca3af;
+    }
+
+    [data-testid="stMarkdownContainer"] p {
+        color: inherit;
+    }
+
+    @media (max-width: 600px) {
+        .block-container {
+            padding: 1.4rem 1rem 2rem;
+        }
+
+        .result-card {
+            padding: 24px 18px;
+        }
+    }
 </style>
+
 <div class="brand">
-  <div class="brand-icon">⌁</div>
-  <div><div class="brand-name">MotionSense</div><div class="brand-sub">Live activity recognition</div></div>
+    <div class="brand-icon">⌁</div>
+    <div>
+        <div class="brand-name">MotionSense</div>
+        <div class="brand-sub">Live activity recognition</div>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
