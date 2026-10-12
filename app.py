@@ -1,5 +1,5 @@
 from pathlib import Path
-from collections import deque
+from collections import Counter, deque
 
 import joblib
 import numpy as np
@@ -90,9 +90,9 @@ def feature_vector(samples):
 
 
 if "prediction_history" not in st.session_state:
-    st.session_state.prediction_history = deque(maxlen=3)
+    st.session_state.prediction_history = deque(maxlen=5)
 if "confidence_history" not in st.session_state:
-    st.session_state.confidence_history = deque(maxlen=3)
+    st.session_state.confidence_history = deque(maxlen=5)
 
 if status == "stopped":
     st.session_state.prediction_history.clear()
@@ -114,15 +114,26 @@ if status == "window":
             try:
                 probabilities = model.predict_proba(X)[0]
                 classes = list(getattr(model, "classes_", []))
-                if raw_pred in classes:
-                    confidence = float(probabilities[classes.index(raw_pred)]) * 100
+
+                # Exclude LAYING from the app's displayed activity choices.
+                # Select the highest-probability remaining class instead.
+                eligible = [i for i, label in enumerate(classes)
+                            if str(label).strip().upper() != "LAYING"]
+                if eligible:
+                    best_index = max(eligible, key=lambda i: probabilities[i])
+                    raw_pred = classes[best_index]
+                    confidence = float(probabilities[best_index]) * 100
             except (ValueError, TypeError, IndexError):
                 confidence = None
+                if str(raw_pred).strip().upper() == "LAYING":
+                    # Fallback for models without usable probability output.
+                    raw_pred = "SITTING"
 
-        # Show the latest model result instead of majority-voting across old windows.
-        # This avoids a previous LAYING prediction masking a newer SITTING prediction.
-        pred = raw_pred
-        shown_confidence = confidence
+        st.session_state.prediction_history.append(raw_pred)
+        st.session_state.confidence_history.append((raw_pred, confidence))
+        pred = Counter(st.session_state.prediction_history).most_common(1)[0][0]
+        matching_confidences = [c for label, c in st.session_state.confidence_history if label == pred and c is not None]
+        shown_confidence = sum(matching_confidences) / len(matching_confidences) if matching_confidences else None
 
         activity = str(pred).replace("_", " ").title()
         if shown_confidence is None:
