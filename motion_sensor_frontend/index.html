@@ -1,261 +1,95 @@
 <!doctype html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>MotionSense Sensor</title>
-  <style>
-    :root {
-      color-scheme: dark;
-      --bg: #07111f;
-      --panel: #0f172a;
-      --border: rgba(148,163,184,.25);
-      --text: #edf5ff;
-      --muted: #9db2d1;
-      --primary: #3b82f6;
-      --danger: #fb7185;
-      --success: #34d399;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0; padding: 12px;
-      background: transparent;
-      color: var(--text);
-      font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
-    .sensor-card {
-      padding: 16px;
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      background: linear-gradient(145deg, rgba(15,23,42,.96), rgba(7,17,31,.96));
-    }
-    .heading { font-size: 16px; font-weight: 750; margin-bottom: 4px; }
-    .description { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
-    .controls { display: flex; flex-wrap: wrap; gap: 8px; }
-    button {
-      border: 0; border-radius: 10px; padding: 10px 15px;
-      min-height: 42px; font: inherit; font-weight: 700; cursor: pointer;
-    }
-    #start { background: var(--primary); color: white; }
-    #stop { background: #334155; color: white; }
-    button:disabled { opacity: .5; cursor: not-allowed; }
-    #status {
-      margin-top: 12px; padding: 10px 12px; border-radius: 10px;
-      border: 1px solid var(--border); color: var(--muted);
-      overflow-wrap: anywhere;
-    }
-    #status.ok { color: var(--success); }
-    #status.error { color: var(--danger); }
-    .small { margin-top: 9px; color: var(--muted); font-size: 12px; }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{margin:0;font-family:system-ui,-apple-system,sans-serif;color:#262730}
+.wrap{border:1px solid #d0d4da;border-radius:12px;padding:14px}
+.buttons{display:flex;gap:10px;flex-wrap:wrap}
+button{border:0;border-radius:8px;padding:10px 16px;font-size:15px;font-weight:600;cursor:pointer}
+#start{background:#ff4b4b;color:white}#stop{background:#eceef2;color:#222}
+#status{margin-top:10px;font-size:14px}#hint{margin-top:6px;color:#666;font-size:12px}
+</style>
 </head>
 <body>
-  <main class="sensor-card">
-    <div class="heading">Live motion sensor</div>
-    <div class="description">Use your phone and allow motion access when your browser asks.</div>
-    <div class="controls">
-      <button id="start" type="button">Start sensing</button>
-      <button id="stop" type="button" disabled>Stop</button>
-    </div>
-    <div id="status" role="status" aria-live="polite">Ready to start.</div>
-    <div class="small">Keep this page open while activity is being detected.</div>
-  </main>
+<div class="wrap">
+  <div class="buttons"><button id="start">▶ Start Detection</button><button id="stop" disabled>■ Stop Detection</button></div>
+  <div id="status" role="status">Detection is off.</div>
+  <div id="hint">Motion is resampled to approximately 50 Hz to better match the training dataset.</div>
+</div>
+<script>
+(function(){
+  const startBtn=document.getElementById('start'), stopBtn=document.getElementById('stop'), statusEl=document.getElementById('status');
+  const RATE=20, WINDOW=128, STRIDE=64;
+  let running=false, samples=[], previous=null, nextSampleTime=null, gravity=[0,0,0];
 
-  <script>
-    (() => {
-      "use strict";
-
-      const startButton = document.getElementById("start");
-      const stopButton = document.getElementById("stop");
-      const statusBox = document.getElementById("status");
-
-      let running = false;
-      let motionSeen = false;
-      let orientationSeen = false;
-      let samples = [];
-      let lastSentAt = 0;
-      let noDataTimer = null;
-      let renderArgs = {};
-
-      function setStatus(message, kind = "") {
-        statusBox.textContent = message;
-        statusBox.className = kind;
+  function post(value){window.parent.postMessage({isStreamlitMessage:true,type:'streamlit:setComponentValue',value:value,dataType:'json'},'*')}
+  function ready(){window.parent.postMessage({isStreamlitMessage:true,type:'streamlit:componentReady',apiVersion:1},'*');window.parent.postMessage({isStreamlitMessage:true,type:'streamlit:setFrameHeight',height:150},'*')}
+  function sendStatus(text,payload){statusEl.textContent=text;post(payload)}
+  function num(v){return typeof v==='number'&&Number.isFinite(v)?v:null}
+  function vector(e){
+    const t=e.accelerationIncludingGravity||{}, b=e.acceleration||{}, r=e.rotationRate||{};
+    const total=[num(t.x),num(t.y),num(t.z)].map(v=>v===null?0:v/9.80665);
+    // Prefer the device's linear acceleration. If unavailable, estimate it by
+    // subtracting a slowly changing gravity component from total acceleration.
+    let body;
+    if([b.x,b.y,b.z].every(v=>num(v)!==null)){
+      body=[b.x,b.y,b.z].map(v=>v/9.80665);
+    }else{
+      gravity=gravity.map((g,i)=>0.9*g+0.1*total[i]);
+      body=total.map((v,i)=>v-gravity[i]);
+    }
+    // DeviceMotion rotationRate uses alpha about z, beta about x, gamma about y.
+    const alpha=num(r.alpha), beta=num(r.beta), gamma=num(r.gamma);
+    const gyro=[beta,gamma,alpha].map(v=>v===null?0:v*Math.PI/180);
+    return [...body,...gyro,...total];
+  }
+  function lerp(a,b,f){return a.map((v,i)=>v+(b[i]-v)*f)}
+  function onMotion(e){
+    if(!running)return;
+    const now=(typeof e.timeStamp==='number'&&Number.isFinite(e.timeStamp))?e.timeStamp:performance.now();
+    const current=vector(e);
+    if(!previous){previous={time:now,values:current};nextSampleTime=now;return}
+    if(now<=previous.time)return;
+    // Interpolate onto a fixed 50 Hz timeline instead of treating arbitrary
+    // browser event frequency as if it were the dataset's 50 Hz sampling rate.
+    while(nextSampleTime<=now){
+      const f=Math.max(0,Math.min(1,(nextSampleTime-previous.time)/(now-previous.time)));
+      samples.push(lerp(previous.values,current,f));
+      nextSampleTime+=RATE;
+      if(samples.length>=WINDOW){
+        const batch=samples.slice(0,WINDOW);
+        post({status:'window',samples:batch,capturedAt:Date.now()});
+        samples=samples.slice(WINDOW-STRIDE);
+        statusEl.textContent='Sensor capture is running. Window sent for prediction.';
       }
-
-      function sendValue(value) {
-        // Streamlit Components v1 communication protocol.
-        window.parent.postMessage({
-          type: "streamlit:setComponentValue",
-          value,
-          dataType: "json"
-        }, "*");
+    }
+    previous={time:now,values:current};
+  }
+  async function start(){
+    if(running)return;
+    if(!('DeviceMotionEvent' in window)){sendStatus('This browser does not support motion sensing.',{status:'unsupported'});return}
+    try{
+      if(typeof DeviceMotionEvent.requestPermission==='function'){
+        const p=await DeviceMotionEvent.requestPermission();
+        if(p!=='granted'){sendStatus('Motion permission was not granted.',{status:'permission_denied'});return}
       }
-
-      function setFrameHeight() {
-        window.parent.postMessage({
-          type: "streamlit:setFrameHeight",
-          height: document.documentElement.scrollHeight
-        }, "*");
-      }
-
-      function numberOrZero(value) {
-        return Number.isFinite(value) ? Number(value) : 0;
-      }
-
-      function onMotion(event) {
-        if (!running) return;
-        const accG = event.accelerationIncludingGravity || {};
-        const acc = event.acceleration || {};
-        const rotation = event.rotationRate || {};
-
-        // Nine channels in this order:
-        // [accelerationIncludingGravity x/y/z,
-        //  acceleration x/y/z,
-        //  rotationRate alpha/beta/gamma].
-        // These channel definitions/order must match the live model's training data.
-        const row = [
-          numberOrZero(accG.x), numberOrZero(accG.y), numberOrZero(accG.z),
-          numberOrZero(acc.x), numberOrZero(acc.y), numberOrZero(acc.z),
-          numberOrZero(rotation.alpha), numberOrZero(rotation.beta), numberOrZero(rotation.gamma)
-        ];
-
-        // Some browsers fire the event but report no usable sensor values.
-        const hasAnyMotionValue = [accG.x, accG.y, accG.z, acc.x, acc.y, acc.z,
-          rotation.alpha, rotation.beta, rotation.gamma].some(Number.isFinite);
-        if (!hasAnyMotionValue) return;
-
-        motionSeen = true;
-        samples.push(row);
-        if (samples.length > 64) samples = samples.slice(-64);
-
-        // Send rolling windows once at least 32 rows are available; then update
-        // approximately every 32 sensor events to avoid excessive reruns.
-        if (samples.length >= 32 && (samples.length === 32 || samples.length % 32 === 0)) {
-          const now = Date.now();
-          if (now - lastSentAt > 250) {
-            lastSentAt = now;
-            sendValue({status: "window", samples: samples.slice(-64)});
-            setStatus("Sensor data received. Detecting activity…", "ok");
-          }
-        }
-      }
-
-      function onOrientation(event) {
-        if (!running) return;
-        if ([event.alpha, event.beta, event.gamma].some(Number.isFinite)) {
-          orientationSeen = true;
-        }
-      }
-
-      function onDeviceError() {
-        if (!running) return;
-        setStatus("The browser did not provide motion data. Check device/browser support and site permissions.", "error");
-      }
-
-      async function requestPermissionIfNeeded() {
-        // iOS Safari requires a user gesture to request these permissions.
-        const requests = [];
-        if (typeof DeviceMotionEvent !== "undefined" &&
-            typeof DeviceMotionEvent.requestPermission === "function") {
-          requests.push(DeviceMotionEvent.requestPermission());
-        }
-        if (typeof DeviceOrientationEvent !== "undefined" &&
-            typeof DeviceOrientationEvent.requestPermission === "function") {
-          requests.push(DeviceOrientationEvent.requestPermission());
-        }
-        if (requests.length) {
-          const results = await Promise.all(requests);
-          if (results.some(result => result !== "granted")) {
-            const err = new Error("Motion permission was not granted. Allow motion access in browser settings and try again.");
-            err.permissionDenied = true;
-            throw err;
-          }
-        }
-      }
-
-      async function start() {
-        if (running) return;
-        if (typeof window.DeviceMotionEvent === "undefined") {
-          sendValue({status: "unsupported"});
-          setStatus("This browser does not expose DeviceMotionEvent. Try Chrome on a compatible phone over HTTPS.", "error");
-          return;
-        }
-
-        startButton.disabled = true;
-        setStatus("Requesting motion sensor access…");
-        try {
-          await requestPermissionIfNeeded();
-          running = true;
-          motionSeen = false;
-          orientationSeen = false;
-          samples = [];
-          lastSentAt = 0;
-
-          window.addEventListener("devicemotion", onMotion, true);
-          window.addEventListener("deviceorientation", onOrientation, true);
-          window.addEventListener("error", onDeviceError);
-
-          stopButton.disabled = false;
-          sendValue({status: "started"});
-          setStatus("Waiting for motion data… Move your phone gently.");
-          noDataTimer = window.setTimeout(() => {
-            if (running && !motionSeen) {
-              setStatus(
-                "No motion values received yet. Confirm you are on a phone, using HTTPS, and that motion access is allowed.",
-                "error"
-              );
-              sendValue({status: "error", message: "No motion sensor data received. Check browser permissions, HTTPS, and device sensor support."});
-            }
-          }, 5000);
-          setFrameHeight();
-        } catch (error) {
-          startButton.disabled = false;
-          const denied = error && (error.permissionDenied ||
-            error.name === "NotAllowedError" ||
-            /permission|denied/i.test(error.message || ""));
-          if (denied) {
-            sendValue({status: "permission_denied"});
-            setStatus(error.message || "Motion permission was denied. Allow it in browser settings and try again.", "error");
-          } else {
-            sendValue({status: "error", message: (error && error.message) || "Could not start motion sensing."});
-            setStatus((error && error.message) || "Could not start motion sensing.", "error");
-          }
-        }
-      }
-
-      function stop() {
-        if (noDataTimer !== null) window.clearTimeout(noDataTimer);
-        noDataTimer = null;
-        if (running) {
-          window.removeEventListener("devicemotion", onMotion, true);
-          window.removeEventListener("deviceorientation", onOrientation, true);
-          window.removeEventListener("error", onDeviceError);
-        }
-        running = false;
-        startButton.disabled = false;
-        stopButton.disabled = true;
-        samples = [];
-        sendValue({status: "stopped"});
-        setStatus("Sensor stopped.");
-        setFrameHeight();
-      }
-
-      startButton.addEventListener("click", start);
-      stopButton.addEventListener("click", stop);
-
-      // Standard Streamlit Components v1 handshake and rerender support.
-      window.addEventListener("message", event => {
-        const data = event.data;
-        if (!data || typeof data !== "object") return;
-        if (data.type === "streamlit:render") {
-          renderArgs = data.args || {};
-          setFrameHeight();
-        }
-      });
-
-      window.parent.postMessage({type: "streamlit:componentReady", apiVersion: 1}, "*");
-      setFrameHeight();
-    })();
-  </script>
+      samples=[];previous=null;nextSampleTime=null;gravity=[0,0,0];running=true;
+      startBtn.disabled=true;stopBtn.disabled=false;
+      sendStatus('Sensor capture is running. Keep the phone steady in a natural position for a few seconds.',{status:'started'});
+      window.addEventListener('devicemotion',onMotion,true);
+    }catch(e){
+      running=false;startBtn.disabled=false;stopBtn.disabled=true;
+      sendStatus('Could not start sensors. Check browser permissions.',{status:'error',message:String(e)});
+    }
+  }
+  function stop(){
+    if(running){running=false;window.removeEventListener('devicemotion',onMotion,true);samples=[];previous=null;startBtn.disabled=false;stopBtn.disabled=true}
+    sendStatus('Detection stopped.',{status:'stopped'});
+  }
+  startBtn.addEventListener('click',start);stopBtn.addEventListener('click',stop);ready();
+})();
+</script>
 </body>
 </html>
